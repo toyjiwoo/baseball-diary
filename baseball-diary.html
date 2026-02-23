@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>직관일지 — 나만의 야구 기록</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700;900&family=Bebas+Neue&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --grass: #1a3a1a; --grass-light: #2d5a27;
+      --cream: #f5f0e8; --cream-dark: #e8e0d0;
+      --red: #c0392b; --gold: #c9a84c;
+      --navy: #1a2744; --ink: #1a1a1a;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'Noto Sans KR', sans-serif; background-color: var(--cream); color: var(--ink); min-height: 100vh; }
+
+    .ticket-card {
+      background: var(--cream); border-radius: 12px;
+      box-shadow: 0 2px 0 #c5bfb0, 0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.8);
+      position: relative; overflow: hidden;
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }
+    .ticket-card:hover {
+      transform: translateY(-4px) rotate(0.3deg);
+      box-shadow: 0 2px 0 #c5bfb0, 0 20px 40px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.8);
+    }
+    .ticket-stripe { position: absolute; top: 0; left: 0; right: 0; height: 6px; }
+    .ticket-stub { background: rgba(0,0,0,0.04); }
+
+    .result-stamp {
+      font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.1em;
+      border-radius: 50%; width: 52px; height: 52px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; border: 3px solid; transform: rotate(-8deg); flex-shrink: 0;
+    }
+    .stamp-win  { color: var(--grass-light); border-color: var(--grass-light); background: rgba(45,90,39,0.08); }
+    .stamp-loss { color: var(--red); border-color: var(--red); background: rgba(192,57,43,0.08); }
+    .stamp-draw { color: #7a6a50; border-color: #7a6a50; background: rgba(122,106,80,0.08); }
+
+    .site-header { background: var(--navy); position: relative; overflow: hidden; }
+    .site-header::before {
+      content: ''; position: absolute; inset: 0;
+      background: repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(255,255,255,0.03) 40px, rgba(255,255,255,0.03) 41px);
+    }
+    .header-diamond {
+      font-family: 'Bebas Neue', sans-serif; font-size: clamp(2.2rem, 5vw, 3.5rem); letter-spacing: 0.05em;
+      background: linear-gradient(135deg, #f5f0e8 0%, var(--gold) 50%, #f5f0e8 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .scoreboard-team { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.05em; }
+
+    .form-field {
+      background: white; border: 2px solid var(--cream-dark); border-radius: 8px;
+      padding: 10px 14px; width: 100%; font-family: 'Noto Sans KR', sans-serif;
+      font-size: 14px; transition: border-color 0.2s; outline: none; color: var(--ink);
+    }
+    .form-field:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(26,39,68,0.1); }
+    .form-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #7a6a50; margin-bottom: 6px; display: block; }
+
+    .preview-ticket {
+      background: var(--cream); border: 2px solid var(--cream-dark);
+      border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+      overflow: hidden; max-width: 380px; margin: 0 auto;
+    }
+    .photo-drop {
+      border: 2px dashed var(--cream-dark); border-radius: 10px; padding: 32px;
+      text-align: center; cursor: pointer; transition: all 0.2s; background: white;
+    }
+    .photo-drop:hover { border-color: var(--navy); background: rgba(26,39,68,0.03); }
+    .nav-btn { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.1em; font-size: 16px; transition: all 0.2s; }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp 0.5s ease forwards; }
+
+    .result-option input { display: none; }
+    .result-option label {
+      display: flex; align-items: center; justify-content: center;
+      width: 56px; height: 56px; border-radius: 50%;
+      border: 2.5px solid var(--cream-dark); cursor: pointer;
+      font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 0.05em;
+      transition: all 0.2s; background: white;
+    }
+    .result-option input:checked + label.win  { border-color: var(--grass-light); color: var(--grass-light); background: rgba(45,90,39,0.1); transform: scale(1.1); }
+    .result-option input:checked + label.loss { border-color: var(--red); color: var(--red); background: rgba(192,57,43,0.1); transform: scale(1.1); }
+    .result-option input:checked + label.draw { border-color: #7a6a50; color: #7a6a50; background: rgba(122,106,80,0.1); transform: scale(1.1); }
+    .result-option label:hover { transform: scale(1.05); }
+
+    .stadium-chip { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; border: 1.5px solid rgba(26,39,68,0.25); color: var(--navy); background: rgba(26,39,68,0.06); }
+    select.form-field { appearance: none; cursor: pointer; }
+    .photo-preview-img { width: 100%; height: 160px; object-fit: cover; display: none; border-radius: 8px; }
+
+    .spinner {
+      width: 32px; height: 32px; border: 3px solid var(--cream-dark);
+      border-top-color: var(--navy); border-radius: 50%;
+      animation: spin 0.7s linear infinite; margin: 60px auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+      background: var(--navy); color: var(--cream); padding: 12px 24px; border-radius: 10px;
+      font-size: 14px; font-weight: 500; transition: transform 0.3s ease; z-index: 9999;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2); white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── 응원팀 선택 모달 ── */
+    #cheer-modal-backdrop {
+      position: fixed; inset: 0; z-index: 10000;
+      background: rgba(10,16,30,0.75); backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      opacity: 0; transition: opacity 0.35s ease;
+    }
+    #cheer-modal-backdrop.show { opacity: 1; }
+
+    #cheer-modal {
+      background: var(--cream); border-radius: 20px; max-width: 480px; width: 100%;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.35);
+      transform: translateY(30px) scale(0.97);
+      transition: transform 0.35s cubic-bezier(.22,.68,0,1.2);
+      overflow: hidden;
+    }
+    #cheer-modal-backdrop.show #cheer-modal { transform: translateY(0) scale(1); }
+
+    .team-btn {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; border-radius: 12px;
+      border: 2px solid transparent; cursor: pointer;
+      transition: all 0.18s; background: white;
+      font-family: 'Noto Sans KR', sans-serif; font-size: 14px; font-weight: 600;
+      color: var(--ink); width: 100%; text-align: left;
+    }
+    .team-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.1); }
+    .team-btn.selected { border-color: var(--gold); background: rgba(201,168,76,0.08); }
+    .team-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── 로그인/회원가입 화면 ── */
+    #page-auth {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 24px; background: var(--cream);
+    }
+    .auth-card {
+      background: white; border-radius: 20px; width: 100%; max-width: 420px;
+      box-shadow: 0 4px 0 #c5bfb0, 0 20px 60px rgba(0,0,0,0.12);
+      overflow: hidden;
+    }
+    .auth-tab {
+      flex: 1; padding: 14px; text-align: center; cursor: pointer;
+      font-weight: 700; font-size: 13px; letter-spacing: 0.05em;
+      border-bottom: 3px solid transparent; transition: all 0.2s; color: #a09080;
+      background: none; border-top: none; border-left: none; border-right: none;
+    }
+    .auth-tab.active { color: var(--navy); border-bottom-color: var(--navy); }
+    .auth-input {
+      width: 100%; padding: 12px 16px; border: 2px solid var(--cream-dark);
+      border-radius: 10px; font-size: 14px; font-family: 'Noto Sans KR', sans-serif;
+      outline: none; transition: border-color 0.2s; color: var(--ink);
+    }
+    .auth-input:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(26,39,68,0.08); }
+    .auth-btn {
+      width: 100%; padding: 14px; border-radius: 12px; border: none; cursor: pointer;
+      font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 0.1em;
+      background: var(--navy); color: var(--cream); transition: all 0.2s;
+    }
+    .auth-btn:hover { opacity: 0.9; }
+    .auth-btn:active { transform: scale(0.98); }
+    .auth-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .auth-error {
+      background: rgba(192,57,43,0.08); border: 1.5px solid rgba(192,57,43,0.3);
+      border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--red);
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="toast"></div>
+
+  <!-- ── 로그인/회원가입 페이지 ── -->
+  <div id="page-auth" style="display:none;">
+    <div class="auth-card">
+      <!-- 로고 -->
+      <div style="background:var(--navy);padding:28px 28px 20px;text-align:center;">
+        <div style="font-family:'Bebas Neue';font-size:36px;letter-spacing:0.05em;background:linear-gradient(135deg,#f5f0e8,var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">직관일지</div>
+        <p style="color:rgba(245,240,232,0.5);font-size:12px;letter-spacing:0.12em;margin-top:2px;">BASEBALL STADIUM DIARY</p>
+      </div>
+      <!-- 탭 -->
+      <div style="display:flex;border-bottom:1px solid var(--cream-dark);">
+        <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">로그인</button>
+        <button class="auth-tab" id="tab-signup" onclick="switchAuthTab('signup')">회원가입</button>
+      </div>
+      <!-- 폼 -->
+      <div style="padding:28px;">
+        <div id="auth-error" class="auth-error" style="margin-bottom:16px;"></div>
+        <!-- 회원가입 전용: 닉네임 -->
+        <div id="field-nickname" style="display:none;margin-bottom:14px;">
+          <label style="font-size:11px;font-weight:700;letter-spacing:0.1em;color:#7a6a50;text-transform:uppercase;display:block;margin-bottom:6px;">닉네임</label>
+          <input id="auth-nickname" type="text" class="auth-input" placeholder="야구팬 닉네임을 입력하세요">
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="font-size:11px;font-weight:700;letter-spacing:0.1em;color:#7a6a50;text-transform:uppercase;display:block;margin-bottom:6px;">이메일</label>
+          <input id="auth-email" type="email" class="auth-input" placeholder="email@example.com" onkeydown="if(event.key==='Enter')authSubmit()">
+        </div>
+        <div style="margin-bottom:22px;">
+          <label style="font-size:11px;font-weight:700;letter-spacing:0.1em;color:#7a6a50;text-transform:uppercase;display:block;margin-bottom:6px;">비밀번호</label>
+          <input id="auth-password" type="password" class="auth-input" placeholder="6자리 이상" onkeydown="if(event.key==='Enter')authSubmit()">
+        </div>
+        <button class="auth-btn" id="auth-submit-btn" onclick="authSubmit()">로그인</button>
+        <p style="text-align:center;font-size:12px;color:#a09080;margin-top:16px;" id="auth-switch-text">
+          계정이 없으신가요? <button onclick="switchAuthTab('signup')" style="color:var(--navy);font-weight:700;background:none;border:none;cursor:pointer;">회원가입</button>
+        </p>
+      </div>
+    </div>
+  </div>
+
+
+
+  <!-- ── 응원팀 선택 모달 ── -->
+  <div id="cheer-modal-backdrop">
+    <div id="cheer-modal">
+      <div style="background:var(--navy);padding:28px 28px 22px;position:relative;">
+        <div style="font-family:'Bebas Neue';font-size:28px;letter-spacing:0.05em;background:linear-gradient(135deg,#f5f0e8,var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">직관일지</div>
+        <p style="color:rgba(245,240,232,0.7);font-size:14px;margin-top:4px;">나만의 야구 직관 기록을 시작해볼까요?</p>
+        <p style="color:rgba(245,240,232,0.45);font-size:12px;margin-top:2px;">먼저 응원하는 팀을 선택해주세요 ⚡</p>
+      </div>
+      <div style="padding:20px 24px 28px;">
+        <div class="grid grid-cols-2 gap-2" id="team-grid"></div>
+        <button id="modal-confirm" onclick="confirmCheerTeam()"
+          class="w-full mt-5 py-3.5 rounded-xl font-bold transition-all hover:opacity-90 active:scale-95"
+          style="background:var(--navy);color:var(--cream);font-family:'Bebas Neue';font-size:18px;letter-spacing:0.1em;opacity:0.4;pointer-events:none;">
+          시작하기 →
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+
+  <!-- HEADER -->
+  <header class="site-header py-5 px-6" id="main-header" style="display:none;">
+    <div class="max-w-4xl mx-auto flex items-center justify-between relative z-10">
+      <div>
+        <div class="header-diamond">직관일지</div>
+        <p style="color:rgba(245,240,232,0.55);font-size:11px;letter-spacing:0.15em;margin-top:-4px;">BASEBALL STADIUM DIARY</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="showPage('list')" class="nav-btn px-4 py-2 text-white/60 hover:text-white transition-colors">목록</button>
+        <div id="header-user" style="display:none;align-items:center;gap:10px;">
+          <span id="header-email" style="font-size:11px;color:rgba(245,240,232,0.5);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+          <button onclick="showPage('write')" class="nav-btn px-5 py-2.5 rounded-lg text-sm" style="background:var(--gold);color:var(--navy);">+ 직관 기록</button>
+          <button onclick="logout()" class="nav-btn px-3 py-2.5 rounded-lg text-sm" style="background:rgba(255,255,255,0.1);color:rgba(245,240,232,0.7);font-size:13px;">로그아웃</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- STATS BAR -->
+  <div style="background:var(--grass);color:var(--cream);display:none;" class="py-3 px-6" id="stats-bar-wrap">
+    <div class="max-w-4xl mx-auto flex gap-8 text-sm">
+      <div><span style="color:var(--gold);font-family:'Bebas Neue';font-size:20px;" id="stat-total">–</span> <span style="opacity:0.6;font-size:11px;letter-spacing:0.08em;">총 직관</span></div>
+      <div><span style="color:#6fcf74;font-family:'Bebas Neue';font-size:20px;" id="stat-win">–</span> <span style="opacity:0.6;font-size:11px;">승</span></div>
+      <div><span style="color:#ef7070;font-family:'Bebas Neue';font-size:20px;" id="stat-loss">–</span> <span style="opacity:0.6;font-size:11px;">패</span></div>
+      <div><span style="color:#d4b870;font-family:'Bebas Neue';font-size:20px;" id="stat-draw">–</span> <span style="opacity:0.6;font-size:11px;">무</span></div>
+    </div>
+  </div>
+
+  <!-- LIST PAGE -->
+  <div id="page-list" class="page">
+    <main class="max-w-4xl mx-auto px-4 py-8">
+      <div class="flex gap-2 mb-6 flex-wrap">
+        <button onclick="filterCards('all')"  class="filter-chip px-4 py-1.5 rounded-full text-sm font-medium border-2 transition-colors" style="background:var(--navy);color:var(--cream);border-color:var(--navy);" data-filter="all">전체</button>
+        <button onclick="filterCards('win')"  class="filter-chip px-4 py-1.5 rounded-full text-sm font-medium border-2 border-green-800/30 hover:bg-green-800/10 transition-colors" style="color:var(--grass-light);" data-filter="win">승리</button>
+        <button onclick="filterCards('loss')" class="filter-chip px-4 py-1.5 rounded-full text-sm font-medium border-2 border-red-700/30 hover:bg-red-700/10 transition-colors" style="color:var(--red);" data-filter="loss">패배</button>
+        <button onclick="filterCards('draw')" class="filter-chip px-4 py-1.5 rounded-full text-sm font-medium border-2 border-yellow-700/30 hover:bg-yellow-700/10 transition-colors" style="color:#7a6a50;" data-filter="draw">무승부</button>
+      </div>
+      <div id="loading" class="spinner"></div>
+      <div id="cards-container" class="grid gap-4 md:grid-cols-2" style="display:none;"></div>
+      <div id="empty-state" class="hidden text-center py-24">
+        <div style="font-size:56px;">⚾</div>
+        <p class="mt-4 text-lg font-semibold" style="color:#7a6a50;">아직 직관 기록이 없어요</p>
+        <p class="mt-1 text-sm" style="color:#a09080;">첫 번째 직관을 기록해보세요!</p>
+        <button onclick="showPage('write')" class="mt-6 px-6 py-3 rounded-xl text-white" style="background:var(--navy);font-size:14px;">직관 기록하기 →</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- WRITE PAGE -->
+  <div id="page-write" class="page">
+    <main class="max-w-5xl mx-auto px-4 py-8">
+      <div class="flex items-center gap-3 mb-8">
+        <button onclick="showPage('list')" class="text-sm hover:underline" style="color:#7a6a50;">← 목록으로</button>
+        <span style="color:#ccc;">|</span>
+        <h1 style="font-family:'Bebas Neue';font-size:24px;color:var(--navy);letter-spacing:0.05em;">새 직관 기록</h1>
+      </div>
+      <div class="grid md:grid-cols-2 gap-8">
+        <!-- 폼 -->
+        <div class="space-y-5">
+          <div style="background:white;border-radius:12px;padding:24px;border:1.5px solid var(--cream-dark);">
+            <h2 style="font-family:'Bebas Neue';font-size:18px;letter-spacing:0.08em;color:var(--navy);margin-bottom:18px;">⚾ 경기 정보</h2>
+            <div class="space-y-4">
+              <div><label class="form-label">경기 날짜</label><input type="date" id="f-date" class="form-field" oninput="updatePreview()"></div>
+              <div>
+                <label class="form-label">경기장</label>
+                <select id="f-stadium" class="form-field" oninput="updatePreview()">
+                  <option value="">경기장을 선택하세요</option>
+                  <optgroup label="서울"><option>잠실야구장</option><option>고척스카이돔</option></optgroup>
+                  <optgroup label="수도권"><option>수원KT위즈파크</option><option>인천SSG랜더스필드</option></optgroup>
+                  <optgroup label="충청"><option>대전한화생명이글스파크</option></optgroup>
+                  <optgroup label="호남"><option>광주기아챔피언스필드</option></optgroup>
+                  <optgroup label="경상"><option>사직야구장</option><option>울산문수야구장</option><option>대구삼성라이온즈파크</option><option>창원NC파크</option><option>포항야구장</option></optgroup>
+                </select>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="form-label">홈팀</label>
+                  <select id="f-home" class="form-field" oninput="updatePreview()">
+                    <option value="">홈팀</option>
+                    <option>KIA 타이거즈</option><option>삼성 라이온즈</option><option>LG 트윈스</option>
+                    <option>두산 베어스</option><option>KT 위즈</option><option>SSG 랜더스</option>
+                    <option>롯데 자이언츠</option><option>한화 이글스</option><option>NC 다이노스</option><option>키움 히어로즈</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label">원정팀</label>
+                  <select id="f-away" class="form-field" oninput="updatePreview()">
+                    <option value="">원정팀</option>
+                    <option>KIA 타이거즈</option><option>삼성 라이온즈</option><option>LG 트윈스</option>
+                    <option>두산 베어스</option><option>KT 위즈</option><option>SSG 랜더스</option>
+                    <option>롯데 자이언츠</option><option>한화 이글스</option><option>NC 다이노스</option><option>키움 히어로즈</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label class="form-label">⚡ 응원팀</label>
+                <select id="f-cheer" class="form-field" oninput="updatePreview()">
+                  <option value="">응원팀을 선택하세요</option>
+                  <option>KIA 타이거즈</option><option>삼성 라이온즈</option><option>LG 트윈스</option>
+                  <option>두산 베어스</option><option>KT 위즈</option><option>SSG 랜더스</option>
+                  <option>롯데 자이언츠</option><option>한화 이글스</option><option>NC 다이노스</option><option>키움 히어로즈</option>
+                </select>
+              </div>
+
+            </div>
+          </div>
+
+          <div style="background:white;border-radius:12px;padding:24px;border:1.5px solid var(--cream-dark);">
+            <h2 style="font-family:'Bebas Neue';font-size:18px;letter-spacing:0.08em;color:var(--navy);margin-bottom:18px;">🎟 좌석 & 결과</h2>
+            <div class="space-y-4">
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="form-label">블록 / 구역</label><input type="text" id="f-block" class="form-field" placeholder="예: 1루 응원석" oninput="updatePreview()"></div>
+                <div><label class="form-label">열 / 번</label><input type="text" id="f-seat" class="form-field" placeholder="예: 12열 15번" oninput="updatePreview()"></div>
+              </div>
+              <div>
+                <label class="form-label">직관 결과</label>
+                <div class="flex gap-4 mt-2">
+                  <div class="result-option"><input type="radio" name="result" id="r-win"  value="win"  onchange="updatePreview()"><label for="r-win"  class="win">승</label></div>
+                  <div class="result-option"><input type="radio" name="result" id="r-loss" value="loss" onchange="updatePreview()"><label for="r-loss" class="loss">패</label></div>
+                  <div class="result-option"><input type="radio" name="result" id="r-draw" value="draw" onchange="updatePreview()"><label for="r-draw" class="draw">무</label></div>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="form-label">홈 점수</label><input type="number" id="f-home-score" class="form-field" placeholder="0" min="0" oninput="updatePreview()"></div>
+                <div><label class="form-label">원정 점수</label><input type="number" id="f-away-score" class="form-field" placeholder="0" min="0" oninput="updatePreview()"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:white;border-radius:12px;padding:24px;border:1.5px solid var(--cream-dark);">
+            <h2 style="font-family:'Bebas Neue';font-size:18px;letter-spacing:0.08em;color:var(--navy);margin-bottom:18px;">📸 사진 & 후기</h2>
+            <div class="space-y-4">
+              <div>
+                <label class="form-label">직관 사진</label>
+                <div class="photo-drop" id="photo-drop" onclick="document.getElementById('f-photo').click()">
+                  <input type="file" id="f-photo" accept="image/*" class="hidden" onchange="handlePhoto(event)">
+                  <img id="photo-preview" class="photo-preview-img" alt="미리보기">
+                  <div id="photo-placeholder"><div style="font-size:32px;margin-bottom:8px;">🏟</div><p class="text-sm" style="color:#a09080;">클릭하거나 사진을 드래그하세요</p></div>
+                </div>
+              </div>
+              <div><label class="form-label">한 줄 후기</label><textarea id="f-review" class="form-field" rows="3" placeholder="오늘 직관 어땠나요?" oninput="updatePreview()" style="resize:none;"></textarea></div>
+            </div>
+          </div>
+
+          <button onclick="saveRecord()" id="save-btn"
+            class="w-full py-4 rounded-xl font-bold transition-all hover:opacity-90 active:scale-95"
+            style="background:var(--navy);color:var(--cream);font-family:'Bebas Neue';font-size:18px;letter-spacing:0.1em;">
+            🎟 직관 기록 저장하기
+          </button>
+        </div>
+
+        <!-- 라이브 미리보기 -->
+        <div class="hidden md:block">
+          <div class="sticky top-6">
+            <p style="font-family:'Bebas Neue';font-size:13px;letter-spacing:0.15em;color:#a09080;margin-bottom:12px;text-align:center;">TICKET PREVIEW</p>
+            <div class="preview-ticket">
+              <div id="prev-stripe" class="ticket-stripe" style="background:linear-gradient(90deg,var(--navy),#3a5a8a);"></div>
+              <div class="px-6 pt-8 pb-5">
+                <div class="flex items-start justify-between mb-4">
+                  <div>
+                    <p style="font-size:10px;letter-spacing:0.12em;color:#a09080;font-weight:700;text-transform:uppercase;">직관일지</p>
+                    <p id="prev-date" style="font-family:'Bebas Neue';font-size:15px;letter-spacing:0.05em;color:var(--navy);margin-top:1px;">날짜 미입력</p>
+                  </div>
+                  <div id="prev-result-stamp" class="result-stamp stamp-win" style="opacity:0.2;">승</div>
+                </div>
+                <div class="text-center py-4 border-t border-b" style="border-color:var(--cream-dark);">
+                  <div class="flex items-center justify-center gap-3">
+                    <div class="text-right">
+                      <p id="prev-home" class="scoreboard-team" style="font-size:20px;color:var(--navy);">홈팀</p>
+                      <p id="prev-home-score" style="font-family:'Bebas Neue';font-size:36px;color:var(--navy);line-height:1;">–</p>
+                    </div>
+                    <div style="font-size:11px;color:#a09080;font-weight:700;padding:0 6px;">VS</div>
+                    <div class="text-left">
+                      <p id="prev-away" class="scoreboard-team" style="font-size:20px;color:var(--navy);">원정팀</p>
+                      <p id="prev-away-score" style="font-family:'Bebas Neue';font-size:36px;color:var(--navy);line-height:1;">–</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex justify-between mt-4 text-xs" style="color:#7a6a50;">
+                  <div><p style="font-weight:700;letter-spacing:0.1em;text-transform:uppercase;font-size:9px;color:#a09080;">STADIUM</p><p id="prev-stadium" class="mt-0.5 font-medium">–</p></div>
+                  <div class="text-right"><p style="font-weight:700;letter-spacing:0.1em;text-transform:uppercase;font-size:9px;color:#a09080;">SEAT</p><p id="prev-seat" class="mt-0.5 font-medium">–</p></div>
+                </div>
+                <div class="mt-3 pt-3 border-t flex items-center gap-2" style="border-color:var(--cream-dark);">
+                  <span style="font-size:13px;">⚡</span>
+                  <div>
+                    <p style="font-weight:700;letter-spacing:0.1em;text-transform:uppercase;font-size:9px;color:#a09080;">MY TEAM</p>
+                    <p id="prev-cheer" class="font-semibold text-xs" style="color:var(--navy);margin-top:1px;">–</p>
+                  </div>
+                </div>
+              </div>
+              <div style="height:1px;margin:0 16px;border-top:2px dashed rgba(0,0,0,0.12);"></div>
+              <div class="ticket-stub px-6 py-4">
+                <p id="prev-review" style="font-size:12px;color:#7a6a50;font-style:italic;min-height:36px;">후기를 입력하면 여기에 표시됩니다...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // ── Supabase 초기화 ───────────────────────────────────────
+    const SUPABASE_URL = 'https://msenirjkwiemkmhbxjwc.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1zZW5pcmprd2llbWttaGJ4andjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4NTkwNjUsImV4cCI6MjA4NzQzNTA2NX0.XYdR-VmStN3mND094_ikbYkEQhReFJqrYSbO8TS4ThM';
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let records = [];
+    let currentFilter = 'all';
+    let uploadedPhoto = null;
+
+    const teamColors = {
+      'LG 트윈스':'#C60C30','KIA 타이거즈':'#EA0029','두산 베어스':'#131230',
+      '삼성 라이온즈':'#074CA1','KT 위즈':'#000000','SSG 랜더스':'#CE0E2D',
+      '롯데 자이언츠':'#041E42','한화 이글스':'#FF6600','NC 다이노스':'#071D49','키움 히어로즈':'#570514'
+    };
+    const getResultLabel = r => ({win:'승',loss:'패',draw:'무'}[r]||'–');
+    const getStripeColor = (h,a) => `linear-gradient(90deg,${teamColors[h]||'#1a2744'} 0%,${teamColors[h]||'#1a2744'} 50%,${teamColors[a]||'#3a5a8a'} 50%,${teamColors[a]||'#3a5a8a'} 100%)`;
+    function formatDate(d) {
+      if (!d) return '';
+      const dt = new Date(d + 'T00:00:00');
+      return `${dt.getFullYear()}.${String(dt.getMonth()+1).padStart(2,'0')}.${String(dt.getDate()).padStart(2,'0')}`;
+    }
+
+    // 토스트
+    function toast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg; el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // ── DB 불러오기 ───────────────────────────────────────────
+    async function loadRecords() {
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('cards-container').style.display = 'none';
+      document.getElementById('empty-state').classList.add('hidden');
+
+      const { data, error } = await db.from('records').select('*').order('created_at', { ascending: false });
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('cards-container').style.display = 'grid';
+
+      if (error) { toast('❌ 불러오기 실패: ' + error.message); return; }
+      records = data || [];
+      updateStats();
+      filterCards(currentFilter);
+    }
+
+    // ── 카드 렌더링 ───────────────────────────────────────────
+    function renderCards(data) {
+      const container = document.getElementById('cards-container');
+      const empty = document.getElementById('empty-state');
+      container.innerHTML = '';
+      if (!data.length) { empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+
+      data.forEach((r, i) => {
+        const home = r.home_team || '';
+        const away = r.away_team || '';
+        const stampClass = r.result === 'win' ? 'stamp-win' : r.result === 'loss' ? 'stamp-loss' : 'stamp-draw';
+        const card = document.createElement('div');
+        card.className = 'ticket-card fade-up';
+        card.style.cssText = `opacity:0;animation-delay:${Math.min(i,6)*0.07}s`;
+        card.setAttribute('data-result', r.result);
+        card.innerHTML = `
+          <div class="ticket-stripe" style="background:${getStripeColor(home,away)};"></div>
+          <div class="px-5 pt-7 pb-4">
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <p style="font-size:9px;letter-spacing:0.12em;color:#a09080;font-weight:700;text-transform:uppercase;">직관일지 · ${String(r.id).padStart(4,'0')}</p>
+                <p style="font-family:'Bebas Neue';font-size:13px;letter-spacing:0.05em;color:var(--navy);margin-top:1px;">${formatDate(r.date)}</p>
+              </div>
+              <div class="result-stamp ${stampClass}" style="width:44px;height:44px;font-size:15px;">${getResultLabel(r.result)}</div>
+            </div>
+            <div class="flex items-center justify-between py-3 border-t border-b" style="border-color:var(--cream-dark);">
+              <div>
+                <p class="scoreboard-team" style="font-size:17px;color:var(--navy);">${home}</p>
+                <p style="font-family:'Bebas Neue';font-size:30px;color:var(--navy);line-height:1.1;">${r.home_score??'?'}</p>
+              </div>
+              <div style="font-size:10px;color:#c0b8aa;font-weight:700;letter-spacing:0.1em;">VS</div>
+              <div class="text-right">
+                <p class="scoreboard-team" style="font-size:17px;color:var(--navy);">${away}</p>
+                <p style="font-family:'Bebas Neue';font-size:30px;color:var(--navy);line-height:1.1;">${r.away_score??'?'}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 mt-3 flex-wrap">
+              <span class="stadium-chip">🏟 ${r.stadium}</span>
+              ${r.block ? `<span class="stadium-chip">💺 ${r.block} ${r.seat||''}</span>` : ''}
+              ${r.cheer_team ? `<span class="stadium-chip" style="color:var(--gold);border-color:var(--gold);background:rgba(201,168,76,0.1);">⚡ ${r.cheer_team}</span>` : ''}
+            </div>
+          </div>
+          <div style="height:1px;background:repeating-linear-gradient(90deg,var(--cream-dark) 0,var(--cream-dark) 6px,transparent 6px,transparent 12px);margin:0 16px;"></div>
+          <div class="ticket-stub px-5 py-3">
+            ${r.photo_url ? `<img src="${r.photo_url}" style="width:100%;height:110px;object-fit:cover;border-radius:6px;margin-bottom:8px;">` : ''}
+            <p style="font-size:12px;color:#7a6a50;font-style:italic;line-height:1.6;">${r.review||'후기 없음'}</p>
+          </div>
+          <div class="px-5 pb-3 flex justify-end">
+            <button onclick="deleteRecord(${r.id})" style="font-size:11px;color:#c0a090;background:none;border:none;cursor:pointer;">🗑 삭제</button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // ── 필터 ─────────────────────────────────────────────────
+    function filterCards(f) {
+      currentFilter = f;
+      document.querySelectorAll('.filter-chip').forEach(btn => {
+        const on = btn.dataset.filter === f;
+        btn.style.background = on ? 'var(--navy)' : '';
+        btn.style.color = on ? 'var(--cream)' : '';
+        btn.style.borderColor = on ? 'var(--navy)' : '';
+      });
+      renderCards(f === 'all' ? records : records.filter(r => r.result === f));
+    }
+
+    // ── 통계 ─────────────────────────────────────────────────
+    function updateStats() {
+      document.getElementById('stat-total').textContent = records.length;
+      document.getElementById('stat-win').textContent   = records.filter(r=>r.result==='win').length;
+      document.getElementById('stat-loss').textContent  = records.filter(r=>r.result==='loss').length;
+      document.getElementById('stat-draw').textContent  = records.filter(r=>r.result==='draw').length;
+    }
+
+    // ── 삭제 ─────────────────────────────────────────────────
+    async function deleteRecord(id) {
+      if (!confirm('이 기록을 삭제할까요?')) return;
+      const { error } = await db.from('records').delete().eq('id', id);
+      if (error) { toast('❌ 삭제 실패: ' + error.message); return; }
+      toast('🗑 기록이 삭제됐어요');
+      await loadRecords();
+    }
+
+    // ── 사진 ─────────────────────────────────────────────────
+    function handlePhoto(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      uploadedPhoto = file;
+      const img = document.getElementById('photo-preview');
+      img.src = URL.createObjectURL(file); img.style.display = 'block';
+      document.getElementById('photo-placeholder').style.display = 'none';
+    }
+
+    async function uploadPhoto(file) {
+      const ext = file.name.split('.').pop();
+      const path = `${Date.now()}.${ext}`;
+      const { error } = await db.storage.from('photos').upload(path, file);
+      if (error) throw error;
+      return db.storage.from('photos').getPublicUrl(path).data.publicUrl;
+    }
+
+    const dropZone = document.getElementById('photo-drop');
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor='var(--navy)'; });
+    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor=''; });
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault(); dropZone.style.borderColor='';
+      const file = e.dataTransfer.files[0];
+      if (file?.type.startsWith('image/')) {
+        uploadedPhoto = file;
+        const img = document.getElementById('photo-preview');
+        img.src = URL.createObjectURL(file); img.style.display='block';
+        document.getElementById('photo-placeholder').style.display='none';
+      }
+    });
+
+    // ── 저장 ─────────────────────────────────────────────────
+    async function saveRecord() {
+      const date    = document.getElementById('f-date').value;
+      const stadium = document.getElementById('f-stadium').value;
+      const home    = document.getElementById('f-home').value;
+      const away    = document.getElementById('f-away').value;
+      const hs      = document.getElementById('f-home-score').value;
+      const as_     = document.getElementById('f-away-score').value;
+      const block   = document.getElementById('f-block').value;
+      const seat    = document.getElementById('f-seat').value;
+      const review  = document.getElementById('f-review').value;
+      const result  = document.querySelector('input[name="result"]:checked')?.value;
+
+      if (!date || !stadium || !home || !away || !result) {
+        toast('⚠️ 날짜, 경기장, 대진팀, 결과는 필수예요!'); return;
+      }
+
+      const btn = document.getElementById('save-btn');
+      btn.textContent = '⏳ 저장 중...'; btn.disabled = true;
+
+      try {
+        let photo_url = null;
+        if (uploadedPhoto) photo_url = await uploadPhoto(uploadedPhoto);
+
+        const { error } = await db.from('records').insert({
+          date, stadium, home_team: home, away_team: away,
+          home_score: hs !== '' ? Number(hs) : null,
+          away_score: as_ !== '' ? Number(as_) : null,
+          result, block, seat, review, photo_url, cheer_team: document.getElementById('f-cheer').value || null,
+          user_id: currentUser.id
+        });
+        if (error) throw error;
+
+        toast('🎟 직관 기록이 저장됐어요!');
+        resetForm();
+        showPage('list');
+      } catch(e) {
+        toast('❌ 저장 실패: ' + e.message);
+      } finally {
+        btn.textContent = '🎟 직관 기록 저장하기'; btn.disabled = false;
+      }
+    }
+
+    function resetForm() {
+      ['f-date','f-stadium','f-home','f-away','f-cheer','f-home-score','f-away-score','f-block','f-seat','f-review']
+        .forEach(id => { document.getElementById(id).value = ''; });
+      document.querySelectorAll('input[name="result"]').forEach(r => r.checked = false);
+      uploadedPhoto = null;
+      document.getElementById('photo-preview').style.display = 'none';
+      document.getElementById('photo-placeholder').style.display = 'block';
+      updatePreview();
+    }
+
+    // ── 라이브 미리보기 ───────────────────────────────────────
+    function updatePreview() {
+      const date   = document.getElementById('f-date').value;
+      const home   = document.getElementById('f-home').value;
+      const away   = document.getElementById('f-away').value;
+      const hs     = document.getElementById('f-home-score').value;
+      const as_    = document.getElementById('f-away-score').value;
+      const result = document.querySelector('input[name="result"]:checked')?.value;
+
+      document.getElementById('prev-date').textContent      = date ? formatDate(date) : '날짜 미입력';
+      document.getElementById('prev-home').textContent      = home || '홈팀';
+      document.getElementById('prev-away').textContent      = away || '원정팀';
+      document.getElementById('prev-home-score').textContent = hs !== '' ? hs : '–';
+      document.getElementById('prev-away-score').textContent = as_ !== '' ? as_ : '–';
+      document.getElementById('prev-stadium').textContent   = document.getElementById('f-stadium').value || '–';
+      const block = document.getElementById('f-block').value;
+      const seat  = document.getElementById('f-seat').value;
+      document.getElementById('prev-seat').textContent = block ? `${block} ${seat}` : '–';
+      document.getElementById('prev-review').textContent = document.getElementById('f-review').value || '후기를 입력하면 여기에 표시됩니다...';
+      document.getElementById('prev-cheer').textContent = document.getElementById('f-cheer').value || '–';
+
+      if (home || away) document.getElementById('prev-stripe').style.background = getStripeColor(home, away);
+
+      const stamp = document.getElementById('prev-result-stamp');
+      stamp.className = 'result-stamp';
+      if (result) { stamp.style.opacity='1'; stamp.textContent=getResultLabel(result); stamp.classList.add('stamp-'+result); }
+      else { stamp.style.opacity='0.2'; stamp.textContent='승'; stamp.classList.add('stamp-win'); }
+    }
+
+    // ── 페이지 전환 ───────────────────────────────────────────
+    function showPage(page) {
+      document.getElementById('page-list').classList.toggle('active', page==='list');
+      document.getElementById('page-write').classList.toggle('active', page==='write');
+      if (page === 'list') loadRecords();
+      window.scrollTo({ top:0, behavior:'smooth' });
+    }
+
+
+    // ── 응원팀 선택 모달 ──────────────────────────────────────
+    const TEAMS = [
+      { name: 'KIA 타이거즈',  color: '#EA0029' },
+      { name: '삼성 라이온즈', color: '#074CA1' },
+      { name: 'LG 트윈스',    color: '#C60C30' },
+      { name: '두산 베어스',  color: '#131230' },
+      { name: 'KT 위즈',      color: '#000000' },
+      { name: 'SSG 랜더스',   color: '#CE0E2D' },
+      { name: '롯데 자이언츠', color: '#041E42' },
+      { name: '한화 이글스',  color: '#FF6600' },
+      { name: 'NC 다이노스',  color: '#071D49' },
+      { name: '키움 히어로즈', color: '#570514' },
+    ];
+
+    let selectedCheerTeam = null;
+
+    function buildTeamGrid() {
+      const grid = document.getElementById('team-grid');
+      grid.innerHTML = '';
+      TEAMS.forEach(t => {
+        const btn = document.createElement('button');
+        btn.className = 'team-btn';
+        btn.innerHTML = `<span class="team-dot" style="background:${t.color};"></span>${t.name}`;
+        btn.onclick = () => {
+          document.querySelectorAll('.team-btn').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          selectedCheerTeam = t.name;
+          const confirm = document.getElementById('modal-confirm');
+          confirm.style.opacity = '1';
+          confirm.style.pointerEvents = 'auto';
+        };
+        grid.appendChild(btn);
+      });
+    }
+
+    function showCheerModal() {
+      buildTeamGrid();
+      const backdrop = document.getElementById('cheer-modal-backdrop');
+      backdrop.style.display = 'flex';
+      requestAnimationFrame(() => backdrop.classList.add('show'));
+    }
+
+    function confirmCheerTeam() {
+      if (!selectedCheerTeam) return;
+      localStorage.setItem('cheerTeam', selectedCheerTeam);
+      const backdrop = document.getElementById('cheer-modal-backdrop');
+      backdrop.classList.remove('show');
+      setTimeout(() => { backdrop.style.display = 'none'; }, 350);
+
+      // 헤더에 응원팀 뱃지 표시
+      showCheerBadge(selectedCheerTeam);
+      toast('⚡ ' + selectedCheerTeam + ' 팬으로 시작해요!');
+    }
+
+    function showCheerBadge(teamName) {
+      const existing = document.getElementById('cheer-badge');
+      if (existing) existing.remove();
+      const team = TEAMS.find(t => t.name === teamName);
+      const badge = document.createElement('div');
+      badge.id = 'cheer-badge';
+      badge.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${team?.color||'#c9a84c'};display:inline-block;margin-right:6px;"></span>⚡ ${teamName}`;
+      badge.style.cssText = 'font-size:11px;font-weight:600;color:rgba(245,240,232,0.75);letter-spacing:0.05em;cursor:pointer;';
+      badge.title = '클릭하면 응원팀 변경';
+      badge.onclick = () => { selectedCheerTeam = null; showCheerModal(); };
+      document.querySelector('.site-header .max-w-4xl').prepend(badge);
+      // 글쓰기 폼의 응원팀도 자동 선택
+      const cheerSelect = document.getElementById('f-cheer');
+      if (cheerSelect) cheerSelect.value = teamName;
+    }
+
+    function initCheerModal() {
+      const saved = localStorage.getItem('cheerTeam');
+      if (saved) {
+        showCheerBadge(saved);
+        const cheerSelect = document.getElementById('f-cheer');
+        if (cheerSelect) cheerSelect.value = saved;
+      } else {
+        showCheerModal();
+      }
+    }
+
+    // ── Auth 관련 ─────────────────────────────────────────────
+    let currentUser = null;
+
+    function switchAuthTab(tab) {
+      const isLogin = tab === 'login';
+      document.getElementById('tab-login').classList.toggle('active', isLogin);
+      document.getElementById('tab-signup').classList.toggle('active', !isLogin);
+      document.getElementById('auth-submit-btn').textContent = isLogin ? '로그인' : '회원가입';
+      document.getElementById('field-nickname').style.display = isLogin ? 'none' : 'block';
+      document.getElementById('auth-switch-text').innerHTML = isLogin
+        ? '계정이 없으신가요? <button onclick="switchAuthTab(\'signup\')" style="color:var(--navy);font-weight:700;background:none;border:none;cursor:pointer;">회원가입</button>'
+        : '이미 계정이 있으신가요? <button onclick="switchAuthTab(\'login\')" style="color:var(--navy);font-weight:700;background:none;border:none;cursor:pointer;">로그인</button>';
+      document.getElementById('auth-error').style.display = 'none';
+    }
+
+    function showAuthError(msg) {
+      const el = document.getElementById('auth-error');
+      el.textContent = msg; el.style.display = 'block';
+    }
+
+    async function authSubmit() {
+      const email    = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const nickname = document.getElementById('auth-nickname').value.trim();
+      const isLogin  = document.getElementById('tab-login').classList.contains('active');
+      const btn      = document.getElementById('auth-submit-btn');
+
+      if (!email || !password) { showAuthError('이메일과 비밀번호를 입력해주세요.'); return; }
+      if (!isLogin && !nickname) { showAuthError('닉네임을 입력해주세요.'); return; }
+      if (password.length < 6) { showAuthError('비밀번호는 6자리 이상이어야 해요.'); return; }
+
+      btn.disabled = true;
+      btn.textContent = isLogin ? '로그인 중...' : '가입 중...';
+      document.getElementById('auth-error').style.display = 'none';
+
+      try {
+        if (isLogin) {
+          const { data, error } = await db.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+        } else {
+          const { data, error } = await db.auth.signUp({
+            email, password,
+            options: { data: { nickname } }
+          });
+          if (error) throw error;
+          toast('🎉 가입 완료! 이메일을 확인해 인증 후 로그인해주세요.');
+          switchAuthTab('login');
+          btn.disabled = false;
+          btn.textContent = '로그인';
+          return;
+        }
+      } catch(e) {
+        const msg = e.message.includes('Invalid login') ? '이메일 또는 비밀번호가 틀렸어요.'
+          : e.message.includes('already registered') ? '이미 가입된 이메일이에요.'
+          : e.message.includes('Email not confirmed') ? '이메일 인증이 필요해요. 메일함을 확인해주세요.'
+          : e.message;
+        showAuthError(msg);
+        btn.disabled = false;
+        btn.textContent = isLogin ? '로그인' : '회원가입';
+      }
+    }
+
+    async function logout() {
+      await db.auth.signOut();
+      currentUser = null;
+      document.getElementById('header-user').style.display = 'none';
+      showAuthPage();
+      toast('로그아웃 됐어요.');
+    }
+
+    function showAuthPage() {
+      document.getElementById('page-auth').style.display = 'flex';
+      document.getElementById('page-list').classList.remove('active');
+      document.getElementById('page-write').classList.remove('active');
+      document.getElementById('main-header').style.display = 'none';
+      document.getElementById('stats-bar-wrap').style.display = 'none';
+    }
+
+    function showAppPage() {
+      document.getElementById('page-auth').style.display = 'none';
+      document.getElementById('main-header').style.display = '';
+      document.getElementById('stats-bar-wrap').style.display = '';
+      document.getElementById('header-user').style.display = 'flex';
+      document.getElementById('header-email').textContent = currentUser?.user_metadata?.nickname || currentUser?.email || '';
+      document.getElementById('page-list').classList.add('active');
+      initCheerModal();
+    }
+
+    // ── 초기 실행 ─────────────────────────────────────────────
+    // 로그인 상태 감지
+    db.auth.onAuthStateChange((event, session) => {
+      currentUser = session?.user || null;
+      if (currentUser) {
+        showAppPage();
+        loadRecords();
+      } else {
+        showAuthPage();
+      }
+    });
+
+    // 저장 시 user_id 포함되도록 saveRecord 내부에서 currentUser.id 사용
+  </script>
+</body>
+</html>
