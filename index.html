@@ -875,7 +875,6 @@
 
       let query = db.from('records')
         .select('*, profiles:user_id(nickname)', { count: 'exact' })
-        .eq('is_public', true)
         .order('created_at', { ascending: false })
         .range(feedOffset, feedOffset + FEED_PAGE_SIZE - 1);
 
