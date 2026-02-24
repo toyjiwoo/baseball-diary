@@ -251,7 +251,8 @@
         <p style="color:rgba(245,240,232,0.55);font-size:11px;letter-spacing:0.15em;margin-top:-4px;">BASEBALL STADIUM DIARY</p>
       </div>
       <div class="flex items-center gap-3">
-        <button onclick="showPage('list')" class="nav-btn px-4 py-2 text-white/60 hover:text-white transition-colors">목록</button>
+        <button onclick="showPage('feed')" class="nav-btn px-4 py-2 text-white/60 hover:text-white transition-colors">피드</button>
+        <button onclick="showPage('list')" class="nav-btn px-4 py-2 text-white/60 hover:text-white transition-colors">내 기록</button>
         <div id="header-user" style="display:none;align-items:center;gap:10px;">
           <span id="header-email" style="font-size:11px;color:rgba(245,240,232,0.5);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
           <button onclick="showPage('write')" class="nav-btn px-5 py-2.5 rounded-lg text-sm" style="background:var(--gold);color:var(--navy);">+ 직관 기록</button>
@@ -269,6 +270,46 @@
       <div><span style="color:#ef7070;font-family:'Bebas Neue';font-size:20px;" id="stat-loss">–</span> <span style="opacity:0.6;font-size:11px;">패</span></div>
       <div><span style="color:#d4b870;font-family:'Bebas Neue';font-size:20px;" id="stat-draw">–</span> <span style="opacity:0.6;font-size:11px;">무</span></div>
     </div>
+  </div>
+
+  <!-- FEED PAGE -->
+  <div id="page-feed" class="page">
+    <main class="max-w-4xl mx-auto px-4 py-8">
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h1 style="font-family:'Bebas Neue';font-size:28px;color:var(--navy);letter-spacing:0.05em;">⚾ 전체 직관 피드</h1>
+          <p style="font-size:12px;color:#a09080;margin-top:2px;">모든 야구팬들의 직관 기록을 구경해보세요</p>
+        </div>
+      </div>
+
+      <!-- 필터 -->
+      <div class="flex gap-2 mb-4 flex-wrap">
+        <select id="feed-team-filter" class="form-field" style="width:auto;padding:8px 14px;font-size:13px;" onchange="loadFeed()">
+          <option value="">전체 팀</option>
+          <option>KIA 타이거즈</option><option>삼성 라이온즈</option><option>LG 트윈스</option>
+          <option>두산 베어스</option><option>KT 위즈</option><option>SSG 랜더스</option>
+          <option>롯데 자이언츠</option><option>한화 이글스</option><option>NC 다이노스</option><option>키움 히어로즈</option>
+        </select>
+        <select id="feed-result-filter" class="form-field" style="width:auto;padding:8px 14px;font-size:13px;" onchange="loadFeed()">
+          <option value="">전체 결과</option>
+          <option value="win">승리</option>
+          <option value="loss">패배</option>
+          <option value="draw">무승부</option>
+        </select>
+      </div>
+
+      <div id="feed-loading" class="spinner"></div>
+      <div id="feed-container" class="grid gap-4 md:grid-cols-2" style="display:none;"></div>
+      <div id="feed-empty" class="hidden text-center py-24">
+        <div style="font-size:56px;">⚾</div>
+        <p class="mt-4 text-lg font-semibold" style="color:#7a6a50;">아직 공개된 직관 기록이 없어요</p>
+        <p class="mt-1 text-sm" style="color:#a09080;">첫 번째로 직관을 기록해보세요!</p>
+      </div>
+      <!-- 더보기 버튼 -->
+      <div class="text-center mt-6">
+        <button id="feed-more-btn" onclick="loadMoreFeed()" style="display:none;background:white;border:2px solid var(--cream-dark);color:var(--navy);padding:10px 28px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;">더보기</button>
+      </div>
+    </main>
   </div>
 
   <!-- LIST PAGE -->
@@ -695,7 +736,9 @@
     function showPage(page) {
       document.getElementById('page-list').classList.toggle('active', page==='list');
       document.getElementById('page-write').classList.toggle('active', page==='write');
+      document.getElementById('page-feed').classList.toggle('active', page==='feed');
       if (page === 'list') loadRecords();
+      if (page === 'feed') { feedOffset = 0; loadFeed(); }
       window.scrollTo({ top:0, behavior:'smooth' });
     }
 
@@ -781,6 +824,120 @@
       }
     }
 
+    // ── 피드 ──────────────────────────────────────────────────
+    const FEED_PAGE_SIZE = 10;
+    let feedOffset = 0;
+    let feedTotal = 0;
+
+    async function loadFeed(append = false) {
+      if (!append) {
+        feedOffset = 0;
+        document.getElementById('feed-loading').style.display = 'block';
+        document.getElementById('feed-container').style.display = 'none';
+        document.getElementById('feed-empty').classList.add('hidden');
+        document.getElementById('feed-more-btn').style.display = 'none';
+        document.getElementById('feed-container').innerHTML = '';
+      }
+
+      const teamFilter   = document.getElementById('feed-team-filter').value;
+      const resultFilter = document.getElementById('feed-result-filter').value;
+
+      let query = db.from('records')
+        .select('*, profiles:user_id(nickname)', { count: 'exact' })
+        .eq('is_public', true)
+        .order('created_at', { ascending: false })
+        .range(feedOffset, feedOffset + FEED_PAGE_SIZE - 1);
+
+      if (teamFilter)   query = query.or(`home_team.eq.${teamFilter},away_team.eq.${teamFilter},cheer_team.eq.${teamFilter}`);
+      if (resultFilter) query = query.eq('result', resultFilter);
+
+      const { data, error, count } = await query;
+
+      document.getElementById('feed-loading').style.display = 'none';
+      document.getElementById('feed-container').style.display = 'grid';
+
+      if (error) { toast('❌ 피드 불러오기 실패'); return; }
+
+      feedTotal = count || 0;
+      const items = data || [];
+
+      if (!append && !items.length) {
+        document.getElementById('feed-empty').classList.remove('hidden');
+        document.getElementById('feed-container').style.display = 'none';
+        return;
+      }
+
+      renderFeedCards(items, append);
+      feedOffset += items.length;
+
+      // 더보기 버튼
+      const moreBtn = document.getElementById('feed-more-btn');
+      moreBtn.style.display = feedOffset < feedTotal ? 'inline-block' : 'none';
+    }
+
+    function loadMoreFeed() { loadFeed(true); }
+
+    function renderFeedCards(data, append = false) {
+      const container = document.getElementById('feed-container');
+      if (!append) container.innerHTML = '';
+
+      data.forEach((r, i) => {
+        const home = r.home_team || '';
+        const away = r.away_team || '';
+        const stampClass = r.result === 'win' ? 'stamp-win' : r.result === 'loss' ? 'stamp-loss' : 'stamp-draw';
+        const nickname = r.profiles?.nickname || '야구팬';
+        const isMyRecord = currentUser && r.user_id === currentUser.id;
+
+        const card = document.createElement('div');
+        card.className = 'ticket-card fade-up';
+        card.style.cssText = `opacity:0;animation-delay:${Math.min(i,6)*0.07}s`;
+
+        card.innerHTML = `
+          <div class="ticket-stripe" style="background:${getStripeColor(home,away)};"></div>
+          <div class="px-5 pt-7 pb-4">
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <div class="flex items-center gap-2 mb-1">
+                  <div style="width:26px;height:26px;border-radius:50%;background:var(--navy);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--gold);font-weight:700;">
+                    ${nickname.charAt(0).toUpperCase()}
+                  </div>
+                  <span style="font-size:12px;font-weight:700;color:var(--navy);">${nickname}</span>
+                  ${isMyRecord ? '<span style="font-size:10px;background:rgba(201,168,76,0.15);color:var(--gold);border:1px solid var(--gold);border-radius:4px;padding:1px 6px;">나</span>' : ''}
+                </div>
+                <p style="font-family:'Bebas Neue';font-size:12px;letter-spacing:0.05em;color:#a09080;">${formatDate(r.date)}</p>
+              </div>
+              <div class="result-stamp ${stampClass}" style="width:44px;height:44px;font-size:15px;">${getResultLabel(r.result)}</div>
+            </div>
+
+            <div class="flex items-center justify-between py-3 border-t border-b" style="border-color:var(--cream-dark);">
+              <div>
+                <p class="scoreboard-team" style="font-size:16px;color:var(--navy);">${home}</p>
+                <p style="font-family:'Bebas Neue';font-size:28px;color:var(--navy);line-height:1.1;">${r.home_score??'?'}</p>
+              </div>
+              <div style="font-size:10px;color:#c0b8aa;font-weight:700;">VS</div>
+              <div class="text-right">
+                <p class="scoreboard-team" style="font-size:16px;color:var(--navy);">${away}</p>
+                <p style="font-family:'Bebas Neue';font-size:28px;color:var(--navy);line-height:1.1;">${r.away_score??'?'}</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 mt-3 flex-wrap">
+              <span class="stadium-chip">🏟 ${r.stadium}</span>
+              ${r.cheer_team ? `<span class="stadium-chip" style="color:var(--gold);border-color:var(--gold);background:rgba(201,168,76,0.1);">⚡ ${r.cheer_team}</span>` : ''}
+            </div>
+          </div>
+
+          <div style="height:1px;background:repeating-linear-gradient(90deg,var(--cream-dark) 0,var(--cream-dark) 6px,transparent 6px,transparent 12px);margin:0 16px;"></div>
+
+          <div class="ticket-stub px-5 py-3">
+            ${r.photo_url ? `<img src="${r.photo_url}" style="width:100%;height:110px;object-fit:cover;border-radius:6px;margin-bottom:8px;">` : ''}
+            ${r.review ? `<p style="font-size:12px;color:#7a6a50;font-style:italic;line-height:1.6;">${r.review}</p>` : ''}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
     // ── Auth 관련 ─────────────────────────────────────────────
     let currentUser = null;
 
@@ -855,6 +1012,7 @@
       document.getElementById('page-auth').style.display = 'flex';
       document.getElementById('page-list').classList.remove('active');
       document.getElementById('page-write').classList.remove('active');
+      document.getElementById('page-feed').classList.remove('active');
       document.getElementById('main-header').style.display = 'none';
       document.getElementById('stats-bar-wrap').style.display = 'none';
     }
